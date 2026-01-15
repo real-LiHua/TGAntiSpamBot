@@ -1,4 +1,8 @@
 use anyhow::{Context, Result};
+use aws_lc_rs::{
+    kem::{Ciphertext, DecapsulationKey, EncapsulationKey},
+    kem::{ML_KEM_1024}
+};
 use dotenvy::dotenv;
 use grammers_client::client::{Client, UpdatesConfiguration};
 use grammers_client::types::update::Update;
@@ -6,13 +10,14 @@ use grammers_mtsender::SenderPool;
 use grammers_session::storages::SqliteSession;
 use proc_exit::{Code, exit};
 use std::env;
+use std::process::Command;
 use std::result::Result::Ok;
 use std::sync::Arc;
 use tokio::{select, signal};
-use tokio::signal::unix::{signal, SignalKind};
 use tokio_util::future::FutureExt;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
+
 
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt, fmt::time::LocalTime};
@@ -48,7 +53,8 @@ async fn main() -> Result<()> {
     } = pool;
     let _pool_task = tokio::spawn(runner.run());
 
-    // TODO: (1) 发送信号
+    // TODO: (1) 发送消息
+
     if client.is_authorized().await? {
         info!("Client already authorized and ready to use!");
     } else {
@@ -75,7 +81,7 @@ async fn main() -> Result<()> {
         loop {
             select! {
                 _ = signal::ctrl_c() => {
-                    exit(Code::FAILURE.ok());
+                    exit(Code::SUCCESS.ok());
                 }
             }
         }
@@ -91,8 +97,34 @@ async fn main() -> Result<()> {
                         Ok(Update::NewMessage(message)) if !message.outgoing() && message.text().trim() == "/restart" => {
                             message.reply("正在重启").await;
                             // TODO: (2) 重启自身
-                            client.disconnect();
-                            return;
+                            match std::env::current_exe() {
+                                Ok(path) => {
+                                    let args: Vec<String> = env::args().skip(1).collect();
+                                    let mut cmd = Command::new(path);
+                                    
+                                    // TODO:HACK: 建立通道
+                                    let decapsulation_key = DecapsulationKey::generate(&ML_KEM_1024).unwrap();
+                                    let encapsulation_key = decapsulation_key.encapsulation_key().unwrap();
+                                    let encapsulation_key_bytes = encapsulation_key.key_bytes().unwrap();
+                                    let encapsulation_key_bytes = encapsulation_key_bytes.as_ref();
+                                    let retrieved_encapsulation_key = EncapsulationKey::new(&ML_KEM_1024, encapsulation_key_bytes).unwrap();
+                                    let (ciphertext, bob_secret) = retrieved_encapsulation_key.encapsulate().unwrap();
+                                    let ciphertext_bytes = ciphertext.as_ref();
+                                    let alice_secret = decapsulation_key.decapsulate(Ciphertext::from(ciphertext_bytes)).unwrap();
+                                    
+                                    cmd.args(&args);
+                                    client.disconnect();
+                                    match cmd.spawn() {
+                                        Ok(child) => {
+                                            info!("Spawned child for restart (pid = {})", child.id());
+                                            return;
+                                        }
+                                        Err(_) => {
+                                        }
+                                    }
+                                }
+                                Err(_) => {}
+                            }
                         }
                         Ok(update) => {
                             let handle = client.clone();
@@ -104,9 +136,9 @@ async fn main() -> Result<()> {
             }
         }
     })().await;
+    // TODO: (3) 监听消息
     tracker.close();
     token.cancel();
     tracker.wait().await;
-    // TODO: (3) 监听信号
     Ok(())
 }
