@@ -6,6 +6,9 @@ use grammers_client::types::update::Update;
 use grammers_mtsender::SenderPool;
 use grammers_session::storages::SqliteSession;
 use proc_exit::{Code, exit};
+use s2n_tls::init::init;
+use s2n_tls::connection::Connection;
+use s2n_tls::enums::Mode;
 use std::env;
 use std::io::{Write, stdin};
 use std::process::{Command, Stdio};
@@ -16,7 +19,6 @@ use tokio_util::future::FutureExt;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
-
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt, fmt::time::LocalTime};
 
@@ -26,6 +28,16 @@ const SESSION_FILE: &str = "bot.session";
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tokio::spawn(async move {
+        loop {
+            select! {
+                _ = signal::ctrl_c() => {
+                    exit(Code::SUCCESS.ok());
+                }
+            }
+        }
+    });
+    
     fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .with_timer(LocalTime::rfc_3339())
@@ -43,10 +55,15 @@ async fn main() -> Result<()> {
 
 
     // TODO: (1) 建立通道
+    let decapsulation_key = DecapsulationKey::generate(&ML_KEM_1024).unwrap(); // 私钥
+    let _encapsulation_key = decapsulation_key.encapsulation_key().unwrap(); // 公钥
+    init();
+    let _conn_client = Connection::new(Mode::Client);
+    let _conn_server = Connection::new(Mode::Server);
     let mut line = String::new();
     stdin().read_line(&mut line).unwrap();
     println!("{}", line);
-    
+
     let session = Arc::new(SqliteSession::open(SESSION_FILE)?);
     let pool = SenderPool::new(Arc::clone(&session), api_id);
     let client = Client::new(&pool);
@@ -79,19 +96,11 @@ async fn main() -> Result<()> {
         },
     );
 
-    tokio::spawn(async move {
-        loop {
-            select! {
-                _ = signal::ctrl_c() => {
-                    exit(Code::SUCCESS.ok());
-                }
-            }
-        }
-    });
-
     let tracker = TaskTracker::new();
     let token = CancellationToken::new();
     (async || {
+        // TODO: 重启完成通知
+
         loop {
             select! {
                 update = updates.next() => {
@@ -105,17 +114,22 @@ async fn main() -> Result<()> {
                                     let mut cmd = Command::new(path);
 
                                     // TODO:HACK: 建立通道
-                                    let decapsulation_key = DecapsulationKey::generate(&ML_KEM_1024).unwrap();
-                                    let encapsulation_key = decapsulation_key.encapsulation_key().unwrap();
+                                    // TODO:创建密钥对
+                                    let decapsulation_key = DecapsulationKey::generate(&ML_KEM_1024).unwrap(); // 私钥
+                                    let encapsulation_key = decapsulation_key.encapsulation_key().unwrap(); // 公钥
 
                                     let encapsulation_key_bytes = encapsulation_key.key_bytes().unwrap();
                                     let encapsulation_key_bytes = encapsulation_key_bytes.as_ref();
 
+                                    // 封装
                                     let retrieved_encapsulation_key = EncapsulationKey::new(&ML_KEM_1024, encapsulation_key_bytes).unwrap();
 
-                                    let (ciphertext, bob_secret) = retrieved_encapsulation_key.encapsulate().unwrap();
+                                    let (ciphertext, _bob_secret) = retrieved_encapsulation_key.encapsulate().unwrap();
                                     let ciphertext_bytes = ciphertext.as_ref();
-                                    let alice_secret = decapsulation_key.decapsulate(Ciphertext::from(ciphertext_bytes)).unwrap();
+
+                                    // TODO: 密文发送给另一进程
+
+                                    let _alice_secret = decapsulation_key.decapsulate(Ciphertext::from(ciphertext_bytes)).unwrap();
 
 
                                     cmd.args(&args).stdin(Stdio::piped());
@@ -135,6 +149,10 @@ async fn main() -> Result<()> {
                                         .take()
                                         .expect("child did not have a handle to stdin");
                                     stdin.write_all("114514".as_bytes()).expect("could not write to stdin");
+                                    
+                                    let _conn_server = Connection::new(Mode::Server);
+                                    let _conn_client = Connection::new(Mode::Client);
+                                    
                                     drop(stdin);
                                     return;
                                 }
