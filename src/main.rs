@@ -17,6 +17,7 @@ use std::process::{Command, Stdio};
 use std::result::Result::Ok;
 use std::sync::Arc;
 use tempfile::tempfile_in;
+use tokio::net::UnixStream;
 use tokio::{select, signal};
 use tokio_util::future::FutureExt;
 use tokio_util::sync::CancellationToken;
@@ -65,11 +66,11 @@ async fn main() -> Result<()> {
 
     let uid = unsafe { getuid() };
     let temp_path = Path::new("/run/user").join(uid.to_string());
-    let mut line = String::new();
-    stdin().read_line(&mut line).unwrap();
+    let mut socket_path = String::new();
+    stdin().read_line(&mut socket_path).unwrap();
+    // TODO: 转为绝对路径，判断输入是否合法
 
-
-    println!("{}", line);
+    println!("{}", socket_path);
 
     let session = Arc::new(SqliteSession::open(SESSION_FILE)?);
     let pool = SenderPool::new(Arc::clone(&session), api_id);
