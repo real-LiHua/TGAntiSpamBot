@@ -154,7 +154,7 @@ async fn main() -> Result<()> {
                                         }
                                         Err(_) => {
                                             warn!("failed to spawn command");
-                                continue;
+                                            continue;
                                         }
                                     };
                                     let mut stdin = child
@@ -167,7 +167,7 @@ async fn main() -> Result<()> {
                                     let _conn_client = Connection::new(Mode::Client);
 
                                     drop(stdin);
-                                continue;
+                                    continue;
                                 }
                                 Err(_) => {}
                             }
