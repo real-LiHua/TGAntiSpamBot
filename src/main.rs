@@ -36,7 +36,7 @@ async fn main() -> Result<()> {
         signal::ctrl_c().await;
         exit(Code::SUCCESS.ok());
     });
-    
+
     fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .with_timer(LocalTime::rfc_3339())
@@ -105,12 +105,19 @@ async fn main() -> Result<()> {
     (async || {
         // TODO: 重启完成通知
 
+        let mut need_restart = false;
         loop {
             select! {
                 update = updates.next() => {
                     match update {
                         Ok(Update::NewMessage(message)) if !message.outgoing() && message.text().trim() == "/restart" => {
+                            if need_restart {
+                                message.reply("别点了，在重启了").await;
+                                continue
+                            }
+                            need_restart = true;
                             message.reply("正在重启").await;
+
                             // TODO: (2) 重启自身
                             match std::env::current_exe() {
                                 Ok(path) => {
@@ -139,7 +146,7 @@ async fn main() -> Result<()> {
 
                                     cmd.args(&args).stdin(Stdio::piped());
                                     client.disconnect();
-                                    let _socket = tempfile_in(temp_path).unwrap();
+                                    let _socket = tempfile_in(temp_path.clone()).unwrap();
                                     let mut child = match cmd.spawn() {
                                         Ok(child) => {
                                             info!("Spawned child for restart (pid = {})", child.id().unwrap());
@@ -147,20 +154,20 @@ async fn main() -> Result<()> {
                                         }
                                         Err(_) => {
                                             warn!("failed to spawn command");
-                                            return ;
+                                continue;
                                         }
                                     };
                                     let mut stdin = child
                                         .stdin
                                         .take()
                                         .expect("child did not have a handle to stdin");
-                                    stdin.write_all("114514".as_bytes());
+                                    stdin.write_all("114514".as_bytes()).await;
 
                                     let _conn_server = Connection::new(Mode::Server);
                                     let _conn_client = Connection::new(Mode::Client);
 
                                     drop(stdin);
-                                    return;
+                                continue;
                                 }
                                 Err(_) => {}
                             }
