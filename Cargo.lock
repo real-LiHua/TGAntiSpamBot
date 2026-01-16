@@ -550,6 +550,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
 name = "hmac"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1053,6 +1059,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
+name = "s2n-tls"
+version = "0.3.33"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c6ff3b4545ac3f38f9a5b55bd43827eb1878949d88dcc06d12f54a6dbca5014"
+dependencies = [
+ "errno",
+ "hex",
+ "libc",
+ "pin-project-lite",
+ "s2n-tls-sys",
+]
+
+[[package]]
+name = "s2n-tls-sys"
+version = "0.3.33"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43774df7df6fc43e442f79787a9fc14ce723e19956d70034b1c1ce9e14867f20"
+dependencies = [
+ "aws-lc-rs",
+ "cc",
+ "libc",
+]
+
+[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1205,6 +1235,7 @@ dependencies = [
  "grammers-mtsender",
  "grammers-session",
  "proc-exit",
+ "s2n-tls",
  "tokio",
  "tokio-util",
  "tracing",

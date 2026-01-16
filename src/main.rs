@@ -1,8 +1,5 @@
 use anyhow::{Context, Result};
-use aws_lc_rs::{
-    kem::{Ciphertext, DecapsulationKey, EncapsulationKey},
-    kem::{ML_KEM_1024}
-};
+use aws_lc_rs::kem::{Ciphertext, DecapsulationKey, EncapsulationKey, ML_KEM_1024};
 use dotenvy::dotenv;
 use grammers_client::client::{Client, UpdatesConfiguration};
 use grammers_client::types::update::Update;
@@ -10,7 +7,8 @@ use grammers_mtsender::SenderPool;
 use grammers_session::storages::SqliteSession;
 use proc_exit::{Code, exit};
 use std::env;
-use std::process::Command;
+use std::io::{Write, stdin};
+use std::process::{Command, Stdio};
 use std::result::Result::Ok;
 use std::sync::Arc;
 use tokio::{select, signal};
@@ -43,6 +41,12 @@ async fn main() -> Result<()> {
     let binding = env::var_os("API_HASH").unwrap_or_else(|| "d524b414d21f4d37f08684c1df41ac9c".into());
     let api_hash = binding.to_string_lossy();
 
+
+    // TODO: (1) 建立通道
+    let mut line = String::new();
+    stdin().read_line(&mut line).unwrap();
+    println!("{}", line);
+    
     let session = Arc::new(SqliteSession::open(SESSION_FILE)?);
     let pool = SenderPool::new(Arc::clone(&session), api_id);
     let client = Client::new(&pool);
@@ -52,8 +56,6 @@ async fn main() -> Result<()> {
         handle: _,
     } = pool;
     let _pool_task = tokio::spawn(runner.run());
-
-    // TODO: (1) 发送消息
 
     if client.is_authorized().await? {
         info!("Client already authorized and ready to use!");
@@ -101,27 +103,40 @@ async fn main() -> Result<()> {
                                 Ok(path) => {
                                     let args: Vec<String> = env::args().skip(1).collect();
                                     let mut cmd = Command::new(path);
-                                    
+
                                     // TODO:HACK: 建立通道
                                     let decapsulation_key = DecapsulationKey::generate(&ML_KEM_1024).unwrap();
                                     let encapsulation_key = decapsulation_key.encapsulation_key().unwrap();
+
                                     let encapsulation_key_bytes = encapsulation_key.key_bytes().unwrap();
                                     let encapsulation_key_bytes = encapsulation_key_bytes.as_ref();
+
                                     let retrieved_encapsulation_key = EncapsulationKey::new(&ML_KEM_1024, encapsulation_key_bytes).unwrap();
+
                                     let (ciphertext, bob_secret) = retrieved_encapsulation_key.encapsulate().unwrap();
                                     let ciphertext_bytes = ciphertext.as_ref();
                                     let alice_secret = decapsulation_key.decapsulate(Ciphertext::from(ciphertext_bytes)).unwrap();
-                                    
-                                    cmd.args(&args);
+
+
+                                    cmd.args(&args).stdin(Stdio::piped());
                                     client.disconnect();
-                                    match cmd.spawn() {
+                                    let mut child = match cmd.spawn() {
                                         Ok(child) => {
                                             info!("Spawned child for restart (pid = {})", child.id());
-                                            return;
+                                            child
                                         }
                                         Err(_) => {
+                                            warn!("failed to spawn command");
+                                            return ;
                                         }
-                                    }
+                                    };
+                                    let mut stdin = child
+                                        .stdin
+                                        .take()
+                                        .expect("child did not have a handle to stdin");
+                                    stdin.write_all("114514".as_bytes()).expect("could not write to stdin");
+                                    drop(stdin);
+                                    return;
                                 }
                                 Err(_) => {}
                             }
