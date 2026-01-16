@@ -5,7 +5,7 @@ use grammers_client::client::{Client, UpdatesConfiguration};
 use grammers_client::types::update::Update;
 use grammers_mtsender::SenderPool;
 use grammers_session::storages::SqliteSession;
-use libc::getuid;
+use nix::unistd::getuid;
 use proc_exit::{Code, exit};
 use s2n_tls::init::init;
 use s2n_tls::connection::Connection;
@@ -17,7 +17,6 @@ use std::process::{Command, Stdio};
 use std::result::Result::Ok;
 use std::sync::Arc;
 use tempfile::tempfile_in;
-use tokio::net::UnixStream;
 use tokio::{select, signal};
 use tokio_util::future::FutureExt;
 use tokio_util::sync::CancellationToken;
@@ -64,7 +63,7 @@ async fn main() -> Result<()> {
     let _conn_client = Connection::new(Mode::Client);
     let _conn_server = Connection::new(Mode::Server);
 
-    let uid = unsafe { getuid() };
+    let uid = getuid().as_raw();
     let temp_path = Path::new("/run/user").join(uid.to_string());
     let mut socket_path = String::new();
     stdin().read_line(&mut socket_path).unwrap();
@@ -143,7 +142,7 @@ async fn main() -> Result<()> {
 
                                     cmd.args(&args).stdin(Stdio::piped());
                                     client.disconnect();
-                                    let mut socket = tempfile_in(temp_path).unwrap();
+                                    let _socket = tempfile_in(temp_path).unwrap();
                                     let mut child = match cmd.spawn() {
                                         Ok(child) => {
                                             info!("Spawned child for restart (pid = {})", child.id());
