@@ -5,20 +5,22 @@ use grammers_client::client::{Client, UpdatesConfiguration};
 use grammers_client::types::update::Update;
 use grammers_mtsender::SenderPool;
 use grammers_session::storages::SqliteSession;
+use libc::getuid;
 use proc_exit::{Code, exit};
 use s2n_tls::init::init;
 use s2n_tls::connection::Connection;
 use s2n_tls::enums::Mode;
 use std::env;
 use std::io::{Write, stdin};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::result::Result::Ok;
 use std::sync::Arc;
+use tempfile::tempfile_in;
 use tokio::{select, signal};
 use tokio_util::future::FutureExt;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
-
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt, fmt::time::LocalTime};
 
@@ -60,8 +62,13 @@ async fn main() -> Result<()> {
     init();
     let _conn_client = Connection::new(Mode::Client);
     let _conn_server = Connection::new(Mode::Server);
+
+    let uid = unsafe { getuid() };
+    let temp_path = Path::new("/run/user").join(uid.to_string());
     let mut line = String::new();
     stdin().read_line(&mut line).unwrap();
+
+
     println!("{}", line);
 
     let session = Arc::new(SqliteSession::open(SESSION_FILE)?);
@@ -134,6 +141,7 @@ async fn main() -> Result<()> {
 
                                     cmd.args(&args).stdin(Stdio::piped());
                                     client.disconnect();
+                                    let mut socket = tempfile_in(temp_path).unwrap();
                                     let mut child = match cmd.spawn() {
                                         Ok(child) => {
                                             info!("Spawned child for restart (pid = {})", child.id());
@@ -149,10 +157,10 @@ async fn main() -> Result<()> {
                                         .take()
                                         .expect("child did not have a handle to stdin");
                                     stdin.write_all("114514".as_bytes()).expect("could not write to stdin");
-                                    
+
                                     let _conn_server = Connection::new(Mode::Server);
                                     let _conn_client = Connection::new(Mode::Client);
-                                    
+
                                     drop(stdin);
                                     return;
                                 }
