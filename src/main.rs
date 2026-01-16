@@ -11,13 +11,15 @@ use s2n_tls::init::init;
 use s2n_tls::connection::Connection;
 use s2n_tls::enums::Mode;
 use std::env;
-use std::io::{Write, stdin};
+use std::io::stdin;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::result::Result::Ok;
 use std::sync::Arc;
 use tempfile::tempfile_in;
 use tokio::{select, signal};
+use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
 use tokio_util::future::FutureExt;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -31,13 +33,8 @@ const SESSION_FILE: &str = "bot.session";
 #[tokio::main]
 async fn main() -> Result<()> {
     tokio::spawn(async move {
-        loop {
-            select! {
-                _ = signal::ctrl_c() => {
-                    exit(Code::SUCCESS.ok());
-                }
-            }
-        }
+        signal::ctrl_c().await;
+        exit(Code::SUCCESS.ok());
     });
     
     fmt()
@@ -145,7 +142,7 @@ async fn main() -> Result<()> {
                                     let _socket = tempfile_in(temp_path).unwrap();
                                     let mut child = match cmd.spawn() {
                                         Ok(child) => {
-                                            info!("Spawned child for restart (pid = {})", child.id());
+                                            info!("Spawned child for restart (pid = {})", child.id().unwrap());
                                             child
                                         }
                                         Err(_) => {
@@ -157,7 +154,7 @@ async fn main() -> Result<()> {
                                         .stdin
                                         .take()
                                         .expect("child did not have a handle to stdin");
-                                    stdin.write_all("114514".as_bytes()).expect("could not write to stdin");
+                                    stdin.write_all("114514".as_bytes());
 
                                     let _conn_server = Connection::new(Mode::Server);
                                     let _conn_client = Connection::new(Mode::Client);

@@ -17,7 +17,7 @@ nix = { version = "0.30.1", features = ["user"] }
 proc-exit = "2.0.2"
 s2n-tls = "0.3.33"
 tempfile = "3.24.0"
-tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "signal"] }
+tokio = { version = "1.48.0", features = ["macros", "process", "rt-multi-thread", "signal"] }
 tokio-util = { version = "0.7.18", features = ["rt"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "local-time"] }
