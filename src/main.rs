@@ -111,10 +111,13 @@ async fn main() -> Result<()> {
                 update = updates.next() => {
                     match update {
                         Ok(Update::NewMessage(message)) if !message.outgoing() && message.text().trim() == "/restart" => {
+                            // TODO: 判断是否为 bot 所有者
+
                             if need_restart {
                                 message.reply("别点了，在重启了").await;
                                 continue
                             }
+
                             need_restart = true;
                             message.reply("正在重启").await;
 
