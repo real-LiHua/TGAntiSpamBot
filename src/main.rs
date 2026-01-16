@@ -139,6 +139,7 @@ async fn main() -> Result<()> {
 
                                     let _alice_secret = decapsulation_key.decapsulate(Ciphertext::from(ciphertext_bytes)).unwrap();
 
+                                    // TODO: 派生子密钥
 
                                     cmd.args(&args).stdin(Stdio::piped());
                                     client.disconnect();
