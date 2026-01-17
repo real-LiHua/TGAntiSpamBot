@@ -54,6 +54,8 @@ async fn main() -> Result<()> {
     let retrieved_encapsulation_key = EncapsulationKey::new(&ML_KEM_1024, &encapsulation_key_bytes).unwrap();
     let (ciphertext, _bob_secret) = retrieved_encapsulation_key.encapsulate().unwrap();
     let _ciphertext_bytes = ciphertext.as_ref();
+    // TODO: 密文发送给父进程
+    // TODO: 派生子密钥
 
     let session = Arc::new(SqliteSession::open(SESSION_FILE)?);
     let pool = SenderPool::new(Arc::clone(&session), api_id);
@@ -118,20 +120,8 @@ async fn main() -> Result<()> {
                                     // TODO:创建密钥对
                                     let decapsulation_key = DecapsulationKey::generate(&ML_KEM_1024).unwrap(); // 私钥
                                     let encapsulation_key = decapsulation_key.encapsulation_key().unwrap(); // 公钥
-
                                     let encapsulation_key_bytes = encapsulation_key.key_bytes().unwrap();
                                     let encapsulation_key_bytes = encapsulation_key_bytes.as_ref();
-
-                                    // 封装
-                                    let retrieved_encapsulation_key = EncapsulationKey::new(&ML_KEM_1024, encapsulation_key_bytes).unwrap();
-                                    let (ciphertext, _bob_secret) = retrieved_encapsulation_key.encapsulate().unwrap();
-                                    let ciphertext_bytes = ciphertext.as_ref();
-
-                                    // TODO: 密文发送给另一进程
-
-                                    let _alice_secret = decapsulation_key.decapsulate(Ciphertext::from(ciphertext_bytes)).unwrap();
-
-                                    // TODO: 派生子密钥
 
                                     cmd.args(&args).stdin(Stdio::piped()).env("TEMPDIR", format!("/run/user/{}", getuid().to_string()));
 
@@ -151,8 +141,14 @@ async fn main() -> Result<()> {
                                         .take()
                                         .expect("child did not have a handle to stdin");
                                     stdin.write_all(encapsulation_key_bytes).await;
-
                                     drop(stdin);
+                                    
+                                    // TODO: 接收密文
+
+                                    let _alice_secret = decapsulation_key.decapsulate(Ciphertext::from(ciphertext_bytes)).unwrap();
+
+                                    // TODO: 派生子密钥
+                                    
                                     continue;
                                 }
                                 Err(_) => {}
