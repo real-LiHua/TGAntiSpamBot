@@ -7,16 +7,11 @@ use grammers_mtsender::SenderPool;
 use grammers_session::storages::SqliteSession;
 use nix::unistd::getuid;
 use proc_exit::{Code, exit};
-use s2n_tls::init::init;
-use s2n_tls::connection::Connection;
-use s2n_tls::enums::Mode;
 use std::env;
-use std::io::stdin;
-use std::path::Path;
+use std::io::{Read, stdin};
 use std::process::Stdio;
 use std::result::Result::Ok;
 use std::sync::Arc;
-use tempfile::tempfile_in;
 use tokio::{select, signal};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
@@ -54,19 +49,11 @@ async fn main() -> Result<()> {
 
 
     // TODO: (1) 建立通道
-    let decapsulation_key = DecapsulationKey::generate(&ML_KEM_1024).unwrap(); // 私钥
-    let _encapsulation_key = decapsulation_key.encapsulation_key().unwrap(); // 公钥
-    init();
-    let _conn_client = Connection::new(Mode::Client);
-    let _conn_server = Connection::new(Mode::Server);
-
-    let uid = getuid().as_raw();
-    let temp_path = Path::new("/run/user").join(uid.to_string());
-    let mut socket_path = String::new();
-    stdin().read_line(&mut socket_path).unwrap();
-    // TODO: 转为绝对路径，判断输入是否合法
-
-    println!("{}", socket_path);
+    let mut encapsulation_key_bytes = Vec::new();
+    stdin().read_to_end(&mut encapsulation_key_bytes);
+    let retrieved_encapsulation_key = EncapsulationKey::new(&ML_KEM_1024, &encapsulation_key_bytes).unwrap();
+    let (ciphertext, _bob_secret) = retrieved_encapsulation_key.encapsulate().unwrap();
+    let _ciphertext_bytes = ciphertext.as_ref();
 
     let session = Arc::new(SqliteSession::open(SESSION_FILE)?);
     let pool = SenderPool::new(Arc::clone(&session), api_id);
@@ -137,7 +124,6 @@ async fn main() -> Result<()> {
 
                                     // 封装
                                     let retrieved_encapsulation_key = EncapsulationKey::new(&ML_KEM_1024, encapsulation_key_bytes).unwrap();
-
                                     let (ciphertext, _bob_secret) = retrieved_encapsulation_key.encapsulate().unwrap();
                                     let ciphertext_bytes = ciphertext.as_ref();
 
@@ -147,9 +133,9 @@ async fn main() -> Result<()> {
 
                                     // TODO: 派生子密钥
 
-                                    cmd.args(&args).stdin(Stdio::piped());
+                                    cmd.args(&args).stdin(Stdio::piped()).env("TEMPDIR", format!("/run/user/{}", getuid().to_string()));
+
                                     client.disconnect();
-                                    let _socket = tempfile_in(temp_path.clone()).unwrap();
                                     let mut child = match cmd.spawn() {
                                         Ok(child) => {
                                             info!("Spawned child for restart (pid = {})", child.id().unwrap());
@@ -164,10 +150,7 @@ async fn main() -> Result<()> {
                                         .stdin
                                         .take()
                                         .expect("child did not have a handle to stdin");
-                                    stdin.write_all("114514".as_bytes()).await;
-
-                                    let _conn_server = Connection::new(Mode::Server);
-                                    let _conn_client = Connection::new(Mode::Client);
+                                    stdin.write_all(encapsulation_key_bytes).await;
 
                                     drop(stdin);
                                     continue;
