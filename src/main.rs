@@ -122,7 +122,7 @@ async fn main() -> Result<()> {
                                     let decapsulation_key = DecapsulationKey::generate(&ML_KEM_1024).unwrap(); // 私钥
                                     let encapsulation_key = decapsulation_key.encapsulation_key().unwrap(); // 公钥
                                     let encapsulation_key_bytes = encapsulation_key.key_bytes().unwrap();
-                                    // TODO:HACK: 改用tempfile
+                                    // HACK: 改用tempfile
                                     let socket_file = Alphanumeric.sample_string(&mut rand::rng(), rand::rng().random_range(8..18));
                                     // let (tx, mut rx) = pipe::pipe().unwrap();
                                     cmd.args(&args).stdin(Stdio::piped()).env("TEMPDIR", format!("/run/user/{}", getuid().to_string())).env("SOCKET_FILE", socket_file);
