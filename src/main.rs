@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use aws_lc_rs::kem::{Ciphertext, DecapsulationKey, EncapsulationKey, ML_KEM_1024};
+use aws_lc_rs::kem::{DecapsulationKey, EncapsulationKey, ML_KEM_1024};
 use dotenvy::dotenv;
 use grammers_client::client::{Client, UpdatesConfiguration};
 use grammers_client::types::update::Update;
@@ -7,6 +7,8 @@ use grammers_mtsender::SenderPool;
 use grammers_session::storages::SqliteSession;
 use nix::unistd::getuid;
 use proc_exit::{Code, exit};
+use rand::distr::{Alphanumeric, SampleString};
+use rand::Rng;
 use std::env;
 use std::io::{Read, stdin};
 use std::process::Stdio;
@@ -46,7 +48,6 @@ async fn main() -> Result<()> {
     let api_id = env::var_os("API_ID").and_then(|v| v.to_string_lossy().parse().ok()).unwrap_or(611335);
     let binding = env::var_os("API_HASH").unwrap_or_else(|| "d524b414d21f4d37f08684c1df41ac9c".into());
     let api_hash = binding.to_string_lossy();
-
 
     // TODO: (1) 建立通道
     let mut encapsulation_key_bytes = Vec::new();
@@ -121,9 +122,10 @@ async fn main() -> Result<()> {
                                     let decapsulation_key = DecapsulationKey::generate(&ML_KEM_1024).unwrap(); // 私钥
                                     let encapsulation_key = decapsulation_key.encapsulation_key().unwrap(); // 公钥
                                     let encapsulation_key_bytes = encapsulation_key.key_bytes().unwrap();
-                                    let encapsulation_key_bytes = encapsulation_key_bytes.as_ref();
-
-                                    cmd.args(&args).stdin(Stdio::piped()).env("TEMPDIR", format!("/run/user/{}", getuid().to_string()));
+                                    // TODO:HACK: 改用tempfile
+                                    let socket_file = Alphanumeric.sample_string(&mut rand::rng(), rand::rng().random_range(8..18));
+                                    // let (tx, mut rx) = pipe::pipe().unwrap();
+                                    cmd.args(&args).stdin(Stdio::piped()).env("TEMPDIR", format!("/run/user/{}", getuid().to_string())).env("SOCKET_FILE", socket_file);
 
                                     client.disconnect();
                                     let mut child = match cmd.spawn() {
@@ -140,12 +142,12 @@ async fn main() -> Result<()> {
                                         .stdin
                                         .take()
                                         .expect("child did not have a handle to stdin");
-                                    stdin.write_all(encapsulation_key_bytes).await;
+                                    stdin.write_all(encapsulation_key_bytes.as_ref()).await;
                                     drop(stdin);
                                     
                                     // TODO: 接收密文
 
-                                    let _alice_secret = decapsulation_key.decapsulate(Ciphertext::from(ciphertext_bytes)).unwrap();
+                                    //let _alice_secret = decapsulation_key.decapsulate(Ciphertext::from(ciphertext_bytes)).unwrap();
 
                                     // TODO: 派生子密钥
                                     
