@@ -150,7 +150,6 @@ async fn main() -> Result<()> {
                     }
 
                     if entry_ready_child.get_secret().await.is_ok() {
-                        let _ = entry_ready_child.delete_secret().await;
                         break;
                     }
                 }
@@ -170,5 +169,6 @@ async fn main() -> Result<()> {
     tracker.close();
     token.cancel();
     tracker.wait().await;
+    let _ = entry_ready_child.delete_secret().await;
     Ok(())
 }
