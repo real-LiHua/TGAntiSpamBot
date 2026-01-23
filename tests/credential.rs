@@ -16,4 +16,7 @@ fn main() {
         }
     }
     assert_eq!(entry.get_secret().unwrap(), Vec::from([1, 1, 4, 5, 1, 4]));
+    if env::var("CHILD").is_ok() {
+        let _ = entry.delete_credential();
+    }
 }
