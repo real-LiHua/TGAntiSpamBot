@@ -11,7 +11,7 @@ use std::env;
 use std::result::Result::Ok;
 use std::sync::Arc;
 use tokio::process::Command;
-use tokio::{select, signal};
+use tokio::signal;
 use tokio_util::future::FutureExt;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -116,44 +116,45 @@ async fn main() -> Result<()> {
 
         let mut need_restart = false;
         loop {
-            select! {
-                update = updates.next() => {
-                    match update {
-                        Ok(Update::NewMessage(message)) if !message.outgoing() && message.text().trim() == "/restart" => {
-                            // TODO: 判断是否为 bot 所有者
+            match updates.next().await {
+                Ok(Update::NewMessage(message))
+                    if !message.outgoing() && message.text().trim() == "/restart" =>
+                {
+                    // TODO: 判断是否为 bot 所有者
 
-                            if need_restart {
-                              let _ =  message.reply("别点了，在重启了").await;
-                                continue
-                            }
+                    if need_restart {
+                        let _ = message.reply("别点了，在重启了").await;
+                        continue;
+                    }
 
-                            need_restart = true;
-                           let _ = message.reply("正在重启").await;
+                    need_restart = true;
+                    let _ = message.reply("正在重启").await;
 
-                            // TODO: (2) 重启自身
-                            if let Ok(path) = std::env::current_exe() {
-                                let args: Vec<String> = env::args().skip(1).collect();
-                                let mut cmd = Command::new(path);
+                    // TODO: (2) 重启自身
+                    if let Ok(path) = std::env::current_exe() {
+                        let args: Vec<String> = env::args().skip(1).collect();
+                        let mut cmd = Command::new(path);
 
-                                cmd.args(&args);
-                                client.disconnect();
-                                if let Ok(child) = cmd.spawn() {
-                                    info!("Spawned child for restart (pid = {})", child.id().unwrap());
-                                } else {
-                                    warn!("failed to spawn command");
-                                }
-                            }
+                        cmd.args(&args);
+                        client.disconnect();
+                        if let Ok(child) = cmd.spawn() {
+                            info!("Spawned child for restart (pid = {})", child.id().unwrap());
+                        } else {
+                            warn!("failed to spawn command");
                         }
-                        Ok(update) => {
-                            let handle = client.clone();
-                            tracker.spawn(handle_update(handle, update).with_cancellation_token_owned(token.clone()));
-                        }
-                        Err(_) => {}
                     }
                 }
+                Ok(update) => {
+                    let handle = client.clone();
+                    tracker.spawn(
+                        handle_update(handle, update).with_cancellation_token_owned(token.clone()),
+                    );
+                }
+                Err(_) => {}
             }
         }
-    }).await;
+    })
+    .await;
 
     // TODO: (3) 监听消息
     tracker.close();
