@@ -12,7 +12,7 @@ futures = "0.3.31"
 grammers-client = "0.8.1"
 grammers-mtsender = "0.8.1"
 grammers-session = "0.8.0"
-keyring = { version = "3.6.3", features = ["linux-native-async-persistent", "apple-native", "windows-native", "tokio", "crypto-rust"] }
+keyring = { version = "3.6.3", features = ["linux-native", "apple-native", "windows-native", "tokio", "crypto-rust"] }
 libc = "0.2.180"
 nix = { version = "0.30.1", features = ["user"] }
 proc-exit = "2.0.2"
