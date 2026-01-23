@@ -47,6 +47,7 @@ async fn main() -> Result<()> {
     // HACK: 机密服务可能不稳定
     let entry_api_id = KeyringEntry::try_new("APP_ID").unwrap();
     let entry_api_hash = KeyringEntry::try_new("APP_HASH").unwrap();
+    let entry_bot_token = KeyringEntry::try_new("BOT_TOKEN").unwrap();
 
     #[allow(clippy::unreadable_literal)]
     let api_id = env::var_os("API_ID")
@@ -85,7 +86,12 @@ async fn main() -> Result<()> {
         info!("Client already authorized and ready to use!");
     } else {
         info!("Signing in...");
-        let bot_token = env::var("BOT_TOKEN").context("BOT_TOKEN not set")?;
+        let bot_token = env::var("BOT_TOKEN").unwrap_or(
+            entry_bot_token
+                .get_secret()
+                .await
+                .context("BOT_TOKEN not set")?,
+        );
         match client.bot_sign_in(&bot_token, &api_hash).await {
             Ok(user) => info!("Account {} is logged in.", user.bare_id()),
             Err(err) => {
@@ -135,7 +141,7 @@ async fn main() -> Result<()> {
                                     info!("Spawned child for restart (pid = {})", child.id().unwrap());
                                 } else {
                                     warn!("failed to spawn command");
-                                };
+                                }
                             }
                         }
                         Ok(update) => {
