@@ -1,3 +1,5 @@
+#![warn(clippy::pedantic)]
+#![warn(clippy::str_to_string)]
 use anyhow::{Context, Result};
 use aws_lc_rs::kem::{DecapsulationKey, EncapsulationKey, ML_KEM_1024};
 use dotenvy::dotenv;
@@ -29,9 +31,10 @@ use tg_anti_spam_bot::handle_update;
 const SESSION_FILE: &str = "bot.session";
 
 #[tokio::main]
+#[allow(clippy::too_many_lines)]
 async fn main() -> Result<()> {
     tokio::spawn(async move {
-        signal::ctrl_c().await;
+        let _ = signal::ctrl_c().await;
         exit(Code::SUCCESS.ok());
     });
 
@@ -48,11 +51,13 @@ async fn main() -> Result<()> {
         .init();
 
     debug!("Loading configuration (.env) ...");
-    match dotenv() {
-        Ok(path) => info!("Loaded: {}", path.display()),
-        Err(_) => warn!("Failed to load .env file"),
+    if let Ok(path) = dotenv() {
+        info!("Loaded: {}", path.display());
+    } else {
+        warn!("Failed to load .env file");
     }
 
+    #[allow(clippy::unreadable_literal)]
     let api_id = env::var_os("API_ID")
         .and_then(|v| v.to_string_lossy().parse().ok())
         .unwrap_or(611335);
@@ -62,7 +67,7 @@ async fn main() -> Result<()> {
 
     // TODO: (1) 建立通道
     let mut encapsulation_key_bytes = Vec::new();
-    stdin().read_to_end(&mut encapsulation_key_bytes);
+    let _ = stdin().read_to_end(&mut encapsulation_key_bytes);
     let retrieved_encapsulation_key =
         EncapsulationKey::new(&ML_KEM_1024, &encapsulation_key_bytes).unwrap();
     let (ciphertext, _bob_secret) = retrieved_encapsulation_key.encapsulate().unwrap();
@@ -104,7 +109,7 @@ async fn main() -> Result<()> {
 
     let tracker = TaskTracker::new();
     let token = CancellationToken::new();
-    async {
+    Box::pin(async {
         // TODO: 重启完成通知
 
         let mut need_restart = false;
@@ -116,12 +121,12 @@ async fn main() -> Result<()> {
                             // TODO: 判断是否为 bot 所有者
 
                             if need_restart {
-                                message.reply("别点了，在重启了").await;
+                              let _ =  message.reply("别点了，在重启了").await;
                                 continue
                             }
 
                             need_restart = true;
-                            message.reply("正在重启").await;
+                           let _ = message.reply("正在重启").await;
 
                             // TODO: (2) 重启自身
                             if let Ok(path) = std::env::current_exe() {
@@ -134,26 +139,23 @@ async fn main() -> Result<()> {
                                 let encapsulation_key = decapsulation_key.encapsulation_key().unwrap(); // 公钥
                                 let encapsulation_key_bytes = encapsulation_key.key_bytes().unwrap();
                                 // HACK: 改用tempfile
-                                let socket_file = Alphanumeric.sample_string(&mut rand::rng(), rand::rng().random_range(8..18));
+                                let socket_file = Alphanumeric.sample_string(&mut rand::rng(), rand::rng().random_range(8..=18));
                                 // let (tx, mut rx) = pipe::pipe().unwrap();
                                 cmd.args(&args).stdin(Stdio::piped()).env("TEMPDIR", format!("/run/user/{}", getuid())).env("SOCKET_FILE", socket_file);
 
                                 client.disconnect();
-                                let mut child = match cmd.spawn() {
-                                    Ok(child) => {
-                                        info!("Spawned child for restart (pid = {})", child.id().unwrap());
-                                        child
-                                    }
-                                    Err(_) => {
-                                        warn!("failed to spawn command");
-                                        continue;
-                                    }
+                                let mut child = if let Ok(child) = cmd.spawn() {
+                                    info!("Spawned child for restart (pid = {})", child.id().unwrap());
+                                    child
+                                } else {
+                                    warn!("failed to spawn command");
+                                    continue;
                                 };
                                 let mut stdin = child
                                     .stdin
                                     .take()
                                     .expect("child did not have a handle to stdin");
-                                stdin.write_all(encapsulation_key_bytes.as_ref()).await;
+                                let _ = stdin.write_all(encapsulation_key_bytes.as_ref()).await;
                                 drop(stdin);
 
                                 // TODO: 接收密文
@@ -161,8 +163,6 @@ async fn main() -> Result<()> {
                                 //let _alice_secret = decapsulation_key.decapsulate(Ciphertext::from(ciphertext_bytes)).unwrap();
 
                                 // TODO: 派生子密钥
-
-                                continue;
                             }
                         }
                         Ok(update) => {
@@ -174,7 +174,7 @@ async fn main() -> Result<()> {
                 }
             }
         }
-    }.await;
+    }).await;
 
     // TODO: (3) 监听消息
     tracker.close();
