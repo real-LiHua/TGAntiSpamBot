@@ -48,6 +48,8 @@ async fn main() -> Result<()> {
     let entry_api_id = KeyringEntry::try_new("APP_ID").unwrap();
     let entry_api_hash = KeyringEntry::try_new("APP_HASH").unwrap();
     let entry_bot_token = KeyringEntry::try_new("BOT_TOKEN").unwrap();
+    let entry_ready_child = KeyringEntry::try_new("READY_CHILD").unwrap();
+    let entry_ready_father = KeyringEntry::try_new("READY_FATHER").unwrap();
 
     #[allow(clippy::unreadable_literal)]
     let api_id = env::var_os("API_ID")
@@ -69,8 +71,10 @@ async fn main() -> Result<()> {
     );
     let api_hash = binding.to_string_lossy();
 
-    let entry = KeyringEntry::try_new("SOCKET_PATH").unwrap();
-    entry.set_secret("secret").await.unwrap();
+    if entry_ready_father.get_secret().await.is_ok() {
+        let _ = entry_ready_father.delete_secret().await;
+        let _ = entry_ready_child.set_secret("1").await;
+    }
 
     let session = Arc::new(SqliteSession::open(SESSION_FILE)?);
     let pool = SenderPool::new(Arc::clone(&session), api_id);
@@ -80,7 +84,7 @@ async fn main() -> Result<()> {
         updates,
         handle: _,
     } = pool;
-    let _pool_task = tokio::spawn(runner.run());
+    let _ = tokio::spawn(runner.run());
 
     if client.is_authorized().await? {
         info!("Client already authorized and ready to use!");
@@ -112,9 +116,9 @@ async fn main() -> Result<()> {
     let tracker = TaskTracker::new();
     let token = CancellationToken::new();
     Box::pin(async {
+        let mut need_restart = false;
         // TODO: 重启完成通知
 
-        let mut need_restart = false;
         loop {
             match updates.next().await {
                 Ok(Update::NewMessage(message))
@@ -137,11 +141,17 @@ async fn main() -> Result<()> {
 
                         cmd.args(&args);
                         client.disconnect();
+                        let _ = entry_ready_father.set_secret("1").await;
                         if let Ok(child) = cmd.spawn() {
                             info!("Spawned child for restart (pid = {})", child.id().unwrap());
                         } else {
                             warn!("failed to spawn command");
                         }
+                    }
+
+                    if entry_ready_child.get_secret().await.is_ok() {
+                        let _ = entry_ready_child.delete_secret().await;
+                        break;
                     }
                 }
                 Ok(update) => {
