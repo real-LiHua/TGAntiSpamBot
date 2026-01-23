@@ -1,5 +1,4 @@
 #![warn(clippy::pedantic)]
-#![warn(clippy::str_to_string)]
 use anyhow::{Context, Result};
 use aws_lc_rs::kem::{DecapsulationKey, EncapsulationKey, ML_KEM_1024};
 use dotenvy::dotenv;
@@ -38,7 +37,8 @@ async fn main() -> Result<()> {
         exit(Code::SUCCESS.ok());
     });
 
-    let persistence = default::default_credential_builder().persistence();
+    let credential_builder = default::default_credential_builder();
+    let persistence = credential_builder.persistence();
     if matches!(persistence, credential::CredentialPersistence::UntilDelete) {
         debug!("The default credential builder persists credentials on disk!");
     } else {
