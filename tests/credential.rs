@@ -1,22 +1,29 @@
 #![warn(clippy::pedantic)]
-use keyring::Entry;
+use keyring::{KeyringEntry, set_global_service_name};
 use std::env;
 use std::process::Command;
 use std::result::Result::Ok;
 
-#[test]
-fn main() {
-    let entry = Entry::new("tgbot_test", "test").unwrap();
+#[tokio::test]
+async fn test() {
+    set_global_service_name("example");
+    let entry = KeyringEntry::try_new("test").unwrap();
+    let magic = "114514";
     if !env::var("CHILD").is_ok() {
-        let _ = entry.set_secret(&[1, 1, 4, 5, 1, 4]);
+        entry.set_secret(magic).await.unwrap();
         if let Ok(path) = env::current_exe() {
             let args: Vec<String> = env::args().skip(1).collect();
             let mut cmd = Command::new(path);
             let _ = cmd.args(&args).env("CHILD", "1").spawn().unwrap();
         }
     }
-    assert_eq!(entry.get_secret().unwrap(), Vec::from([1, 1, 4, 5, 1, 4]));
+    assert_eq!(entry.get_secret().await.unwrap(), "114514");
     if env::var("CHILD").is_ok() {
-        let _ = entry.delete_credential();
+        entry.delete_secret().await.unwrap();
     }
+}
+
+#[tokio::main]
+async fn main() {
+    test();
 }

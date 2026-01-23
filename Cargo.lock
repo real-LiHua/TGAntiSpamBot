@@ -985,6 +985,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "keyring-lib"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56921558c465f33d51c6047b86b76764cd2a86b69b99653b43ba1f9a32965218"
+dependencies = [
+ "keyring",
+ "once_cell",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1895,7 +1908,7 @@ dependencies = [
  "grammers-client",
  "grammers-mtsender",
  "grammers-session",
- "keyring",
+ "keyring-lib",
  "libc",
  "nix 0.30.1",
  "proc-exit",
@@ -1906,6 +1919,26 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "thiserror"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

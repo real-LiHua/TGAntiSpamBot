@@ -6,7 +6,7 @@ use grammers_client::client::{Client, UpdatesConfiguration};
 use grammers_client::types::update::Update;
 use grammers_mtsender::SenderPool;
 use grammers_session::storages::SqliteSession;
-use keyring::{credential, default};
+use keyring::{KeyringEntry, set_global_service_name};
 use nix::unistd::getuid;
 use proc_exit::{Code, exit};
 use rand::Rng;
@@ -37,13 +37,9 @@ async fn main() -> Result<()> {
         exit(Code::SUCCESS.ok());
     });
 
-    let credential_builder = default::default_credential_builder();
-    let persistence = credential_builder.persistence();
-    if matches!(persistence, credential::CredentialPersistence::UntilDelete) {
-        debug!("The default credential builder persists credentials on disk!");
-    } else {
-        debug!("The default credential builder doesn't persist credentials on disk!");
-    }
+    set_global_service_name("example");
+    let entry = KeyringEntry::try_new("key").unwrap();
+    entry.set_secret("secret").await.unwrap();
 
     fmt()
         .with_env_filter(EnvFilter::from_default_env())
