@@ -1,22 +1,15 @@
 #![warn(clippy::pedantic)]
 use anyhow::{Context, Result};
-use aws_lc_rs::kem::{DecapsulationKey, EncapsulationKey, ML_KEM_1024};
 use dotenvy::dotenv;
 use grammers_client::client::{Client, UpdatesConfiguration};
 use grammers_client::types::update::Update;
 use grammers_mtsender::SenderPool;
 use grammers_session::storages::SqliteSession;
 use keyring::{KeyringEntry, set_global_service_name};
-use nix::unistd::getuid;
 use proc_exit::{Code, exit};
-use rand::Rng;
-use rand::distr::{Alphanumeric, SampleString};
 use std::env;
-use std::io::{Read, stdin};
-use std::process::Stdio;
 use std::result::Result::Ok;
 use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::{select, signal};
 use tokio_util::future::FutureExt;
@@ -37,9 +30,7 @@ async fn main() -> Result<()> {
         exit(Code::SUCCESS.ok());
     });
 
-    set_global_service_name("example");
-    let entry = KeyringEntry::try_new("key").unwrap();
-    entry.set_secret("secret").await.unwrap();
+    set_global_service_name(env!("CARGO_BIN_NAME"));
 
     fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -53,23 +44,32 @@ async fn main() -> Result<()> {
         warn!("Failed to load .env file");
     }
 
+    // HACK: 机密服务可能不稳定
+    let entry_api_id = KeyringEntry::try_new("APP_ID").unwrap();
+    let entry_api_hash = KeyringEntry::try_new("APP_HASH").unwrap();
+
     #[allow(clippy::unreadable_literal)]
     let api_id = env::var_os("API_ID")
-        .and_then(|v| v.to_string_lossy().parse().ok())
-        .unwrap_or(611335);
-    let binding =
-        env::var_os("API_HASH").unwrap_or_else(|| "d524b414d21f4d37f08684c1df41ac9c".into());
+        .map(|v| v.to_string_lossy().into_owned())
+        .unwrap_or(
+            entry_api_id
+                .get_secret()
+                .await
+                .unwrap_or(611335.to_string()),
+        )
+        .parse::<i32>()?;
+
+    let binding = env::var_os("API_HASH").unwrap_or(
+        entry_api_hash
+            .get_secret()
+            .await
+            .unwrap_or("d524b414d21f4d37f08684c1df41ac9c".to_string())
+            .into(),
+    );
     let api_hash = binding.to_string_lossy();
 
-    // TODO: (1) 建立通道
-    let mut encapsulation_key_bytes = Vec::new();
-    let _ = stdin().read_to_end(&mut encapsulation_key_bytes);
-    let retrieved_encapsulation_key =
-        EncapsulationKey::new(&ML_KEM_1024, &encapsulation_key_bytes).unwrap();
-    let (ciphertext, _bob_secret) = retrieved_encapsulation_key.encapsulate().unwrap();
-    let _ciphertext_bytes = ciphertext.as_ref();
-    // TODO: 密文发送给父进程
-    // TODO: 派生子密钥
+    let entry = KeyringEntry::try_new("SOCKET_PATH").unwrap();
+    entry.set_secret("secret").await.unwrap();
 
     let session = Arc::new(SqliteSession::open(SESSION_FILE)?);
     let pool = SenderPool::new(Arc::clone(&session), api_id);
@@ -129,36 +129,13 @@ async fn main() -> Result<()> {
                                 let args: Vec<String> = env::args().skip(1).collect();
                                 let mut cmd = Command::new(path);
 
-                                // TODO:HACK: 建立通道
-                                // TODO:创建密钥对
-                                let decapsulation_key = DecapsulationKey::generate(&ML_KEM_1024).unwrap(); // 私钥
-                                let encapsulation_key = decapsulation_key.encapsulation_key().unwrap(); // 公钥
-                                let encapsulation_key_bytes = encapsulation_key.key_bytes().unwrap();
-                                // HACK: 改用tempfile
-                                let socket_file = Alphanumeric.sample_string(&mut rand::rng(), rand::rng().random_range(8..=18));
-                                // let (tx, mut rx) = pipe::pipe().unwrap();
-                                cmd.args(&args).stdin(Stdio::piped()).env("TEMPDIR", format!("/run/user/{}", getuid())).env("SOCKET_FILE", socket_file);
-
+                                cmd.args(&args);
                                 client.disconnect();
-                                let mut child = if let Ok(child) = cmd.spawn() {
+                                if let Ok(child) = cmd.spawn() {
                                     info!("Spawned child for restart (pid = {})", child.id().unwrap());
-                                    child
                                 } else {
                                     warn!("failed to spawn command");
-                                    continue;
                                 };
-                                let mut stdin = child
-                                    .stdin
-                                    .take()
-                                    .expect("child did not have a handle to stdin");
-                                let _ = stdin.write_all(encapsulation_key_bytes.as_ref()).await;
-                                drop(stdin);
-
-                                // TODO: 接收密文
-
-                                //let _alice_secret = decapsulation_key.decapsulate(Ciphertext::from(ciphertext_bytes)).unwrap();
-
-                                // TODO: 派生子密钥
                             }
                         }
                         Ok(update) => {
