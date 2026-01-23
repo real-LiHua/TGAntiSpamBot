@@ -1,0 +1,4 @@
+allow-unwrap-in-consts = false
+enforce-iter-loop-reborrow = true
+warn-on-all-wildcard-imports = true
+warn-unsafe-macro-metavars-in-private-macros = true
