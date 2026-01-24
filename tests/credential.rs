@@ -1,13 +1,14 @@
 #![warn(clippy::pedantic)]
 use keyring::{KeyringEntry, set_global_service_name};
 use std::env;
-use std::process::Command;
+use std::process::{Command, id};
 use std::result::Result::Ok;
 
 #[tokio::test]
 async fn test() {
-    set_global_service_name("example");
-    let entry = KeyringEntry::try_new("test").unwrap();
+    let service = format!("tg_anti_spam_bot_test_{}", id());
+    set_global_service_name(&service);
+    let entry = KeyringEntry::try_new(&format!("test-{}", id())).unwrap();
     let magic = "114514";
     if !env::var("CHILD").is_ok() {
         entry.set_secret(magic).await.unwrap();

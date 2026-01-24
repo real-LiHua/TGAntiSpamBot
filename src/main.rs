@@ -1,20 +1,21 @@
 #![warn(clippy::pedantic)]
-use anyhow::{Context, Result};
+use anyhow::Result;
 use dotenvy::dotenv;
 use grammers_client::client::{Client, UpdatesConfiguration};
 use grammers_client::types::update::Update;
 use grammers_mtsender::SenderPool;
 use grammers_session::storages::SqliteSession;
-use keyring::{KeyringEntry, set_global_service_name};
+use keyring::{KeyringEntry, get_global_service_name, native::Entry, set_global_service_name};
 use proc_exit::{Code, exit};
 use std::env;
+use std::ffi::OsString;
+use std::os::unix::ffi::OsStringExt;
 use std::result::Result::Ok;
+use std::string::String;
 use std::sync::Arc;
 use tokio::process::Command;
 use tokio::signal;
-use tokio_util::future::FutureExt;
-use tokio_util::sync::CancellationToken;
-use tokio_util::task::TaskTracker;
+use tokio_util::{future::FutureExt, sync::CancellationToken, task::TaskTracker};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt, fmt::time::LocalTime};
 
@@ -45,31 +46,33 @@ async fn main() -> Result<()> {
     }
 
     // HACK: 机密服务可能不稳定
-    let entry_api_id = KeyringEntry::try_new("APP_ID").unwrap();
-    let entry_api_hash = KeyringEntry::try_new("APP_HASH").unwrap();
-    let entry_bot_token = KeyringEntry::try_new("BOT_TOKEN").unwrap();
+    let entry_api_id = Entry::new(get_global_service_name(), "APP_ID").unwrap();
+    let entry_api_hash = Entry::new(get_global_service_name(), "APP_HASH").unwrap();
+    let entry_bot_token = Entry::new(get_global_service_name(), "BOT_TOKEN").unwrap();
+    let _entry_bot_owner_id = KeyringEntry::try_new("BOT_OWNER_ID").unwrap();
     let entry_ready_child = KeyringEntry::try_new("READY_CHILD").unwrap();
     let entry_ready_father = KeyringEntry::try_new("READY_FATHER").unwrap();
 
     #[allow(clippy::unreadable_literal)]
     let api_id = env::var_os("API_ID")
         .map(|v| v.to_string_lossy().into_owned())
-        .unwrap_or(
-            entry_api_id
-                .get_secret()
-                .await
-                .unwrap_or(611335.to_string()),
-        )
+        .unwrap_or_else(|| {
+            String::from_utf8_lossy(&entry_api_id.get_secret().unwrap_or("611335".into()))
+                .into_owned()
+        })
         .parse::<i32>()?;
 
-    let binding = env::var_os("API_HASH").unwrap_or(
-        entry_api_hash
-            .get_secret()
-            .await
-            .unwrap_or("d524b414d21f4d37f08684c1df41ac9c".to_string())
-            .into(),
-    );
+    let binding = env::var_os("API_HASH").unwrap_or_else(|| {
+        OsString::from_vec(
+            entry_api_hash
+                .get_secret()
+                .unwrap_or("d524b414d21f4d37f08684c1df41ac9c".into()),
+        )
+    });
     let api_hash = binding.to_string_lossy();
+
+    let token = CancellationToken::new();
+    let tracker = TaskTracker::new();
 
     if entry_ready_father.get_secret().await.is_ok() {
         let _ = entry_ready_father.delete_secret().await;
@@ -85,17 +88,17 @@ async fn main() -> Result<()> {
         handle: _,
     } = pool;
     let _ = tokio::spawn(runner.run());
-
     if client.is_authorized().await? {
         info!("Client already authorized and ready to use!");
     } else {
         info!("Signing in...");
-        let bot_token = env::var("BOT_TOKEN").unwrap_or(
-            entry_bot_token
-                .get_secret()
-                .await
-                .context("BOT_TOKEN not set")?,
-        );
+        let bot_token = env::var("BOT_TOKEN").unwrap_or_else(|_| {
+            String::try_from(entry_bot_token.get_secret().unwrap_or_else(|_| {
+                error!("BOT_TOKEN must be set");
+                exit(Code::FAILURE.ok());
+            }))
+            .expect("Failed to convert bot token")
+        });
         match client.bot_sign_in(&bot_token, &api_hash).await {
             Ok(user) => info!("Account {} is logged in.", user.bare_id()),
             Err(err) => {
@@ -113,8 +116,6 @@ async fn main() -> Result<()> {
         },
     );
 
-    let tracker = TaskTracker::new();
-    let token = CancellationToken::new();
     Box::pin(async {
         let mut need_restart = false;
         // TODO: 重启完成通知
