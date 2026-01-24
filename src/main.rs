@@ -45,13 +45,18 @@ async fn main() -> Result<()> {
         warn!("Failed to load .env file");
     }
 
-    // HACK: 机密服务可能不稳定
-    let entry_api_id = Entry::new(get_global_service_name(), "APP_ID").unwrap();
-    let entry_api_hash = Entry::new(get_global_service_name(), "APP_HASH").unwrap();
-    let entry_bot_token = Entry::new(get_global_service_name(), "BOT_TOKEN").unwrap();
-    let _entry_bot_owner_id = KeyringEntry::try_new("BOT_OWNER_ID").unwrap();
-    let entry_ready_child = KeyringEntry::try_new("READY_CHILD").unwrap();
-    let entry_ready_father = KeyringEntry::try_new("READY_FATHER").unwrap();
+    let entry_api_id = Entry::new(get_global_service_name(), "APP_ID")
+        .unwrap_or_else(|_| exit(Code::FAILURE.ok()));
+    let entry_api_hash = Entry::new(get_global_service_name(), "APP_HASH")
+        .unwrap_or_else(|_| exit(Code::FAILURE.ok()));
+    let entry_bot_token = Entry::new(get_global_service_name(), "BOT_TOKEN")
+        .unwrap_or_else(|_| exit(Code::FAILURE.ok()));
+    let _entry_bot_owner_id =
+        KeyringEntry::try_new("BOT_OWNER_ID").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
+    let entry_ready_child =
+        KeyringEntry::try_new("READY_CHILD").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
+    let entry_ready_father =
+        KeyringEntry::try_new("READY_FATHER").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
 
     #[allow(clippy::unreadable_literal)]
     let api_id = env::var_os("API_ID")
@@ -74,9 +79,15 @@ async fn main() -> Result<()> {
     let token = CancellationToken::new();
     let tracker = TaskTracker::new();
 
-    if entry_ready_father.get_secret().await.is_ok() {
-        let _ = entry_ready_father.delete_secret().await;
-        let _ = entry_ready_child.set_secret("1").await;
+    let is_enabled = String::from("1");
+
+    loop {
+        let flag = entry_ready_father.get_secret().await;
+        if flag.is_ok() && flag.unwrap_or_else(|_| String::new()) == is_enabled {
+            let _ = entry_ready_father.set_secret("0").await;
+            let _ = entry_ready_child.set_secret("1").await;
+            break;
+        }
     }
 
     let session = Arc::new(SqliteSession::open(SESSION_FILE)?);
@@ -135,7 +146,6 @@ async fn main() -> Result<()> {
                     need_restart = true;
                     let _ = message.reply("正在重启").await;
 
-                    // TODO: (2) 重启自身
                     if let Ok(path) = std::env::current_exe() {
                         let args: Vec<String> = env::args().skip(1).collect();
                         let mut cmd = Command::new(path);
@@ -144,15 +154,27 @@ async fn main() -> Result<()> {
                         client.disconnect();
                         let _ = entry_ready_father.set_secret("1").await;
                         if let Ok(child) = cmd.spawn() {
-                            info!("Spawned child for restart (pid = {})", child.id().unwrap());
+                            let pid = child.id().unwrap_or(0);
+                            if pid != 0 {
+                                info!("Spawned child for restart (pid = {})", pid);
+                            } else {
+                                warn!("Spawned child for restart (pid = -1)");
+                            }
                         } else {
+                            need_restart = false;
                             warn!("failed to spawn command");
+                            let _ = message.reply("重启失败").await;
+                            continue;
                         }
                     }
 
-                    if entry_ready_child.get_secret().await.is_ok() {
-                        break;
+                    loop {
+                        let flag = entry_ready_child.get_secret().await;
+                        if flag.is_ok() && flag.unwrap_or_else(|_| String::new()) == is_enabled {
+                            break;
+                        }
                     }
+                    break;
                 }
                 Ok(update) => {
                     let handle = client.clone();
@@ -166,10 +188,9 @@ async fn main() -> Result<()> {
     })
     .await;
 
-    // TODO: (3) 监听消息
     tracker.close();
     token.cancel();
     tracker.wait().await;
-    let _ = entry_ready_child.delete_secret().await;
+    let _ = entry_ready_child.set_secret("0").await;
     Ok(())
 }
