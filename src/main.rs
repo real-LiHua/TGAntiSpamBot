@@ -5,11 +5,9 @@ use grammers_client::client::{Client, UpdatesConfiguration};
 use grammers_client::types::update::Update;
 use grammers_mtsender::SenderPool;
 use grammers_session::storages::SqliteSession;
-use keyring::{KeyringEntry, get_global_service_name, native::Entry, set_global_service_name};
+use keyring::{KeyringEntry, set_global_service_name};
 use proc_exit::{Code, exit};
 use std::env;
-use std::ffi::OsString;
-use std::os::unix::ffi::OsStringExt;
 use std::result::Result::Ok;
 use std::string::String;
 use std::sync::Arc;
@@ -45,12 +43,11 @@ async fn main() -> Result<()> {
         warn!("Failed to load .env file");
     }
 
-    let entry_api_id = Entry::new(get_global_service_name(), "APP_ID")
-        .unwrap_or_else(|_| exit(Code::FAILURE.ok()));
-    let entry_api_hash = Entry::new(get_global_service_name(), "APP_HASH")
-        .unwrap_or_else(|_| exit(Code::FAILURE.ok()));
-    let entry_bot_token = Entry::new(get_global_service_name(), "BOT_TOKEN")
-        .unwrap_or_else(|_| exit(Code::FAILURE.ok()));
+    let entry_api_id = KeyringEntry::try_new("APP_ID").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
+    let entry_api_hash =
+        KeyringEntry::try_new("APP_HASH").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
+    let entry_bot_token =
+        KeyringEntry::try_new("BOT_TOKEN").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
     let _entry_bot_owner_id =
         KeyringEntry::try_new("BOT_OWNER_ID").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
     let entry_ready_child =
@@ -59,23 +56,23 @@ async fn main() -> Result<()> {
         KeyringEntry::try_new("READY_FATHER").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
 
     #[allow(clippy::unreadable_literal)]
-    let api_id = env::var_os("API_ID")
-        .map(|v| v.to_string_lossy().into_owned())
-        // FIXME: 堵塞
-        .unwrap_or_else(|| {
-            String::from_utf8_lossy(&entry_api_id.get_secret().unwrap_or("611335".into()))
-                .into_owned()
-        })
-        .parse::<i32>()?;
+    let api_id = match env::var_os("API_ID") {
+        Some(value) => value.to_string_lossy().into_owned(),
+        _ => entry_api_id
+            .get_secret()
+            .await
+            .unwrap_or_else(|_| "611335".into()),
+    }
+    .parse::<i32>()?;
 
-    // FIXME: 堵塞
-    let binding = env::var_os("API_HASH").unwrap_or_else(|| {
-        OsString::from_vec(
-            entry_api_hash
-                .get_secret()
-                .unwrap_or("d524b414d21f4d37f08684c1df41ac9c".into()),
-        )
-    });
+    let binding = match env::var_os("API_HASH") {
+        Some(value) => value,
+        _ => entry_api_hash
+            .get_secret()
+            .await
+            .unwrap_or_else(|_| "d524b414d21f4d37f08684c1df41ac9c".into())
+            .into(),
+    };
     let api_hash = binding.to_string_lossy();
 
     let token = CancellationToken::new();
@@ -105,13 +102,13 @@ async fn main() -> Result<()> {
         info!("Client already authorized and ready to use!");
     } else {
         info!("Signing in...");
-        let bot_token = env::var("BOT_TOKEN").unwrap_or_else(|_| {
-            String::try_from(entry_bot_token.get_secret().unwrap_or_else(|_| {
+        let bot_token = match env::var("BOT_TOKEN") {
+            Ok(value) => value,
+            _ => entry_bot_token.get_secret().await.unwrap_or_else(|_| {
                 error!("BOT_TOKEN must be set");
                 exit(Code::FAILURE.ok());
-            }))
-            .expect("Failed to convert bot token")
-        });
+            }),
+        };
         match client.bot_sign_in(&bot_token, &api_hash).await {
             Ok(user) => info!("Account {} is logged in.", user.bare_id()),
             Err(err) => {
