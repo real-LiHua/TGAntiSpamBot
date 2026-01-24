@@ -6,8 +6,7 @@ use std::result::Result::Ok;
 
 #[tokio::test]
 async fn test() {
-    let service = format!("tg_anti_spam_bot_test_{}", id());
-    set_global_service_name(&service);
+    set_global_service_name("tg_anti_spam_bot_test");
     let entry = KeyringEntry::try_new(&format!("test-{}", id())).unwrap();
     let magic = "114514";
     if !env::var("CHILD").is_ok() {
