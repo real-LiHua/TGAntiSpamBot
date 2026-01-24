@@ -7,14 +7,14 @@ use std::result::Result::Ok;
 #[tokio::test]
 async fn test() {
     set_global_service_name("tg_anti_spam_bot_test");
-    let entry = KeyringEntry::try_new(&format!("test-{}", id())).unwrap();
+    let entry = KeyringEntry::try_new(format!("test-{}", id())).unwrap();
     let magic = "114514";
-    if !env::var("CHILD").is_ok() {
+    if env::var("CHILD").is_err() {
         entry.set_secret(magic).await.unwrap();
         if let Ok(path) = env::current_exe() {
             let args: Vec<String> = env::args().skip(1).collect();
             let mut cmd = Command::new(path);
-            let _ = cmd.args(&args).env("CHILD", "1").spawn().unwrap();
+            let _ = cmd.args(&args).env("CHILD", "1").spawn().unwrap().wait();
         }
     }
     assert_eq!(entry.get_secret().await.unwrap(), "114514");
