@@ -4,15 +4,15 @@ use dotenvy::dotenv;
 use grammers_client::client::{Client, UpdatesConfiguration};
 use grammers_client::types::update::Update;
 use grammers_mtsender::SenderPool;
-use grammers_session::storages::SqliteSession;
+use grammers_session::{defs::PeerId, storages::SqliteSession};
 use keyring::{KeyringEntry, set_global_service_name};
 use proc_exit::{Code, exit};
 use std::env;
 use std::result::Result::Ok;
 use std::string::String;
 use std::sync::Arc;
-use tokio::process::Command;
-use tokio::signal;
+use tokio::time::{Duration, sleep};
+use tokio::{process::Command, signal};
 use tokio_util::{future::FutureExt, sync::CancellationToken, task::TaskTracker};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt, fmt::time::LocalTime};
@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
         KeyringEntry::try_new("APP_HASH").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
     let entry_bot_token =
         KeyringEntry::try_new("BOT_TOKEN").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
-    let _entry_bot_owner_id =
+    let entry_bot_owner_id =
         KeyringEntry::try_new("BOT_OWNER_ID").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
     let entry_ready_child =
         KeyringEntry::try_new("READY_CHILD").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
@@ -75,18 +75,30 @@ async fn main() -> Result<()> {
     };
     let api_hash = binding.to_string_lossy();
 
+    let bot_owner = match env::var_os("BOT_OWNER_ID") {
+        Some(value) => PeerId::user(value.to_string_lossy().into_owned().parse::<i64>()?),
+        _ => PeerId::user(
+            entry_bot_owner_id
+                .get_secret()
+                .await
+                .unwrap_or_else(|_| exit(Code::FAILURE.ok()))
+                .parse::<i64>()?,
+        ),
+    };
+
     let token = CancellationToken::new();
     let tracker = TaskTracker::new();
 
-    let is_enabled = String::from("1");
+    let is_enabled = &String::from("1");
 
     loop {
         let flag = entry_ready_father.get_secret().await;
-        if flag.is_ok() && flag.unwrap_or_else(|_| String::new()) == is_enabled {
+        if flag.as_ref().is_ok_and(|v| v == is_enabled) {
             let _ = entry_ready_father.set_secret("0").await;
             let _ = entry_ready_child.set_secret("1").await;
             break;
         }
+        sleep(Duration::from_millis(100)).await;
     }
 
     let session = Arc::new(SqliteSession::open(SESSION_FILE)?);
@@ -135,7 +147,12 @@ async fn main() -> Result<()> {
                 Ok(Update::NewMessage(message))
                     if !message.outgoing() && message.text().trim() == "/restart" =>
                 {
-                    // TODO: 判断是否为 bot 所有者
+                    if let Some(peer) = message.sender()
+                        && peer.id() != bot_owner
+                    {
+                        let _ = message.reply("权限不足").await;
+                        continue;
+                    }
 
                     if need_restart {
                         let _ = message.reply("别点了，在重启了").await;
@@ -150,9 +167,9 @@ async fn main() -> Result<()> {
                         let mut cmd = Command::new(path);
 
                         cmd.args(&args);
-                        client.disconnect();
-                        let _ = entry_ready_father.set_secret("1").await;
                         if let Ok(child) = cmd.spawn() {
+                            client.disconnect();
+                            let _ = entry_ready_father.set_secret("1").await;
                             let pid = child.id().unwrap_or(0);
                             if pid != 0 {
                                 info!("Spawned child for restart (pid = {})", pid);
@@ -169,9 +186,10 @@ async fn main() -> Result<()> {
 
                     loop {
                         let flag = entry_ready_child.get_secret().await;
-                        if flag.is_ok() && flag.unwrap_or_else(|_| String::new()) == is_enabled {
+                        if flag.as_ref().is_ok_and(|v| v == is_enabled) {
                             break;
                         }
+                        sleep(Duration::from_millis(100)).await;
                     }
                     break;
                 }
