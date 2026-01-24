@@ -61,12 +61,14 @@ async fn main() -> Result<()> {
     #[allow(clippy::unreadable_literal)]
     let api_id = env::var_os("API_ID")
         .map(|v| v.to_string_lossy().into_owned())
+        // FIXME: 堵塞
         .unwrap_or_else(|| {
             String::from_utf8_lossy(&entry_api_id.get_secret().unwrap_or("611335".into()))
                 .into_owned()
         })
         .parse::<i32>()?;
 
+    // FIXME: 堵塞
     let binding = env::var_os("API_HASH").unwrap_or_else(|| {
         OsString::from_vec(
             entry_api_hash
