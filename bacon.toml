@@ -1,0 +1,4 @@
+#:schema https://dystroy.org/bacon/.bacon.schema.json
+
+default_job = "clippy-all"
+env.CARGO_TERM_COLOR = "auto"

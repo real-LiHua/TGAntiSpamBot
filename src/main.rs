@@ -1,19 +1,19 @@
-use anyhow::{Context, Result};
+#![warn(clippy::pedantic)]
+use anyhow::Result;
 use dotenvy::dotenv;
 use grammers_client::client::{Client, UpdatesConfiguration};
+use grammers_client::session::{defs::PeerId, storages::SqliteSession};
 use grammers_client::types::update::Update;
 use grammers_mtsender::SenderPool;
-use grammers_session::storages::SqliteSession;
+use keyring::{KeyringEntry, set_global_service_name};
 use proc_exit::{Code, exit};
 use std::env;
 use std::result::Result::Ok;
+use std::string::String;
 use std::sync::Arc;
-use tokio::{select, signal};
-use tokio::signal::unix::{signal, SignalKind};
-use tokio_util::future::FutureExt;
-use tokio_util::sync::CancellationToken;
-use tokio_util::task::TaskTracker;
-
+use tokio::time::{Duration, sleep};
+use tokio::{process::Command, signal};
+use tokio_util::{future::FutureExt, sync::CancellationToken, task::TaskTracker};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt, fmt::time::LocalTime};
 
@@ -22,21 +22,84 @@ use tg_anti_spam_bot::handle_update;
 const SESSION_FILE: &str = "bot.session";
 
 #[tokio::main]
+#[allow(clippy::too_many_lines)]
 async fn main() -> Result<()> {
+    tokio::spawn(async move {
+        let _ = signal::ctrl_c().await;
+        exit(Code::SUCCESS.ok());
+    });
+
+    set_global_service_name(env!("CARGO_BIN_NAME"));
+
     fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .with_timer(LocalTime::rfc_3339())
         .init();
 
     debug!("Loading configuration (.env) ...");
-    match dotenv() {
-        Ok(path) => info!("Loaded: {}", path.display()),
-        Err(_) => warn!("Failed to load .env file"),
+    if let Ok(path) = dotenv() {
+        info!("Loaded: {}", path.display());
+    } else {
+        warn!("Failed to load .env file");
     }
 
-    let api_id = env::var_os("API_ID").and_then(|v| v.to_string_lossy().parse().ok()).unwrap_or(611335);
-    let binding = env::var_os("API_HASH").unwrap_or_else(|| "d524b414d21f4d37f08684c1df41ac9c".into());
+    let entry_api_id = KeyringEntry::try_new("APP_ID").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
+    let entry_api_hash =
+        KeyringEntry::try_new("APP_HASH").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
+    let entry_bot_token =
+        KeyringEntry::try_new("BOT_TOKEN").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
+    let entry_bot_owner_id =
+        KeyringEntry::try_new("BOT_OWNER_ID").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
+    let entry_ready_child =
+        KeyringEntry::try_new("READY_CHILD").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
+    let entry_ready_father =
+        KeyringEntry::try_new("READY_FATHER").unwrap_or_else(|_| exit(Code::FAILURE.ok()));
+
+    #[allow(clippy::unreadable_literal)]
+    let api_id = match env::var_os("API_ID") {
+        Some(value) => value.to_string_lossy().into_owned(),
+        _ => entry_api_id
+            .get_secret()
+            .await
+            .unwrap_or_else(|_| "611335".into()),
+    }
+    .parse::<i32>()?;
+
+    let binding = match env::var_os("API_HASH") {
+        Some(value) => value,
+        _ => entry_api_hash
+            .get_secret()
+            .await
+            .unwrap_or_else(|_| "d524b414d21f4d37f08684c1df41ac9c".into())
+            .into(),
+    };
     let api_hash = binding.to_string_lossy();
+
+    let bot_owner = match env::var_os("BOT_OWNER_ID") {
+        Some(value) => PeerId::user(value.to_string_lossy().into_owned().parse::<i64>()?),
+        _ => PeerId::user(
+            entry_bot_owner_id
+                .get_secret()
+                .await
+                .unwrap_or_else(|_| exit(Code::FAILURE.ok()))
+                .parse::<i64>()?,
+        ),
+    };
+
+    let token = CancellationToken::new();
+    let tracker = TaskTracker::new();
+
+    let is_enabled = &String::from("1");
+
+    loop {
+        let flag = entry_ready_father.get_secret().await;
+        if flag.as_ref().is_ok_and(|v| v == is_enabled) {
+            let _ = entry_ready_father.set_secret("0").await;
+            let _ = entry_ready_child.set_secret("1").await;
+            break;
+        }
+        sleep(Duration::from_millis(100)).await;
+    }
 
     let session = Arc::new(SqliteSession::open(SESSION_FILE)?);
     let pool = SenderPool::new(Arc::clone(&session), api_id);
@@ -46,14 +109,18 @@ async fn main() -> Result<()> {
         updates,
         handle: _,
     } = pool;
-    let _pool_task = tokio::spawn(runner.run());
-
-    // TODO: (1) 发送信号
+    let _ = tokio::spawn(runner.run());
     if client.is_authorized().await? {
         info!("Client already authorized and ready to use!");
     } else {
         info!("Signing in...");
-        let bot_token = env::var("BOT_TOKEN").context("BOT_TOKEN not set")?;
+        let bot_token = match env::var("BOT_TOKEN") {
+            Ok(value) => value,
+            _ => entry_bot_token.get_secret().await.unwrap_or_else(|_| {
+                error!("BOT_TOKEN must be set");
+                exit(Code::FAILURE.ok());
+            }),
+        };
         match client.bot_sign_in(&bot_token, &api_hash).await {
             Ok(user) => info!("Account {} is logged in.", user.bare_id()),
             Err(err) => {
@@ -71,42 +138,76 @@ async fn main() -> Result<()> {
         },
     );
 
-    tokio::spawn(async move {
-        loop {
-            select! {
-                _ = signal::ctrl_c() => {
-                    exit(Code::FAILURE.ok());
-                }
-            }
-        }
-    });
+    Box::pin(async {
+        let mut need_restart = false;
+        // TODO: 重启完成通知
 
-    let tracker = TaskTracker::new();
-    let token = CancellationToken::new();
-    (async || {
         loop {
-            select! {
-                update = updates.next() => {
-                    match update {
-                        Ok(Update::NewMessage(message)) if !message.outgoing() && message.text().trim() == "/restart" => {
-                            message.reply("正在重启").await;
-                            // TODO: (2) 重启自身
-                            client.disconnect();
-                            return;
-                        }
-                        Ok(update) => {
-                            let handle = client.clone();
-                            tracker.spawn(handle_update(handle, update).with_cancellation_token_owned(token.clone()));
-                        }
-                        Err(_) => {}
+            match updates.next().await {
+                Ok(Update::NewMessage(message))
+                    if !message.outgoing() && message.text().trim() == "/restart" =>
+                {
+                    if let Some(peer) = message.sender()
+                        && peer.id() != bot_owner
+                    {
+                        let _ = message.reply("权限不足").await;
+                        continue;
                     }
+
+                    if need_restart {
+                        let _ = message.reply("别点了，在重启了").await;
+                        continue;
+                    }
+
+                    need_restart = true;
+                    let _ = message.reply("正在重启").await;
+
+                    if let Ok(path) = std::env::current_exe() {
+                        let args: Vec<String> = env::args().skip(1).collect();
+                        let mut cmd = Command::new(path);
+
+                        cmd.args(&args);
+                        if let Ok(child) = cmd.spawn() {
+                            client.disconnect();
+                            let _ = entry_ready_father.set_secret("1").await;
+                            let pid = child.id().unwrap_or(0);
+                            if pid != 0 {
+                                info!("Spawned child for restart (pid = {})", pid);
+                            } else {
+                                warn!("Spawned child for restart (pid = -1)");
+                            }
+                        } else {
+                            need_restart = false;
+                            warn!("failed to spawn command");
+                            let _ = message.reply("重启失败").await;
+                            continue;
+                        }
+                    }
+
+                    loop {
+                        let flag = entry_ready_child.get_secret().await;
+                        if flag.as_ref().is_ok_and(|v| v == is_enabled) {
+                            break;
+                        }
+                        sleep(Duration::from_millis(100)).await;
+                    }
+                    break;
                 }
+                Ok(update) => {
+                    let handle = client.clone();
+                    tracker.spawn(
+                        handle_update(handle, update).with_cancellation_token_owned(token.clone()),
+                    );
+                }
+                Err(_) => {}
             }
         }
-    })().await;
+    })
+    .await;
+
     tracker.close();
     token.cancel();
     tracker.wait().await;
-    // TODO: (3) 监听信号
+    let _ = entry_ready_child.set_secret("0").await;
     Ok(())
 }
