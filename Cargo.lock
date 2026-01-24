@@ -1758,7 +1758,6 @@ dependencies = [
  "dotenvy",
  "grammers-client",
  "grammers-mtsender",
- "grammers-session",
  "keyring-lib",
  "proc-exit",
  "tokio",

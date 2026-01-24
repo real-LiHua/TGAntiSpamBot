@@ -8,7 +8,6 @@ anyhow = "1.0.100"
 dotenvy = "0.15.7"
 grammers-client = "0.8.1"
 grammers-mtsender = "0.8.1"
-grammers-session = "0.8.0"
 keyring-lib = { version = "1.0.2", features = ["tokio", "rustls"] }
 proc-exit = "2.0.2"
 tokio = { version = "1.48.0", features = ["macros", "process", "rt-multi-thread", "signal"] }

@@ -2,9 +2,9 @@
 use anyhow::Result;
 use dotenvy::dotenv;
 use grammers_client::client::{Client, UpdatesConfiguration};
+use grammers_client::session::{defs::PeerId, storages::SqliteSession};
 use grammers_client::types::update::Update;
 use grammers_mtsender::SenderPool;
-use grammers_session::{defs::PeerId, storages::SqliteSession};
 use keyring::{KeyringEntry, set_global_service_name};
 use proc_exit::{Code, exit};
 use std::env;
