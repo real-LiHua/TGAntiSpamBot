@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.100"
+anyhow = "1.0.102"
 async-trait = "0.1.89"
 dotenvy = "0.15.7"
-futures = "0.3.31"
-grammers-client = "0.8.1"
-grammers-mtsender = "0.8.1"
-grammers-session = "0.8.0"
+futures = "0.3.32"
+grammers-client = "0.9.0"
+grammers-mtsender = "0.9.0"
+grammers-session = "0.9.0"
 proc-exit = "2.0.2"
 tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "signal"] }
 tokio-util = { version = "0.7.18", features = ["rt"] }
